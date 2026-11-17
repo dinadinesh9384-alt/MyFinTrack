@@ -6,660 +6,338 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.myfintrack.app.components.SpendingOverviewSection
-import com.myfintrack.app.model.CategorySpending
+import com.myfintrack.app.components.*
+import com.myfintrack.app.domain.FinanceCalculator
+import com.myfintrack.app.domain.Money
+import com.myfintrack.app.model.AppSettings
 import com.myfintrack.app.model.Transaction
-import com.myfintrack.app.model.TransactionType
 import com.myfintrack.app.theme.*
+import com.myfintrack.app.viewmodel.DashboardState
+import java.time.LocalTime
+import java.time.format.TextStyle
+import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun HomeScreen(
-    transactions: List<Transaction>,
-    categories: List<CategorySpending>,
-    isBalanceMasked: Boolean,
-    onToggleBalanceMask: () -> Unit,
-    onNotificationClick: () -> Unit,
-    onQuickAction: (String) -> Unit,
-    onSeeAllHistory: () -> Unit,
-    onCategorySelected: (CategorySpending) -> Unit,
+    state: DashboardState,
+    settings: AppSettings,
+    onToggleHideBalances: () -> Unit,
+    onAddIncome: () -> Unit,
+    onAddExpense: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onTransactionClick: (Transaction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val totalIncome = transactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
-    val totalExpenses = transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
-    val totalBalance = totalIncome - totalExpenses
+    val hidden = settings.hideBalances
+    val monthName = state.month.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)
 
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // A. Top Navigation Header
-        item {
-            HeaderSection(
-                onNotificationClick = onNotificationClick
+        item(key = "header") {
+            HeaderSection(displayName = settings.displayName, onProfileClick = onOpenSettings)
+        }
+
+        item(key = "balance") {
+            BalanceCard(
+                state = state,
+                hidden = hidden,
+                onToggleHidden = onToggleHideBalances
             )
         }
 
-        // B. Total Balance Card
-        item {
-            BalanceCardSection(
-                totalBalance = totalBalance,
-                isMasked = isBalanceMasked,
-                onToggleMask = onToggleBalanceMask
+        item(key = "summary") {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SummaryTile(
+                    label = "Income",
+                    caption = monthName,
+                    amount = Money.display(state.monthTotals.incomePaise, hidden, withDecimals = false),
+                    color = FinAccent,
+                    icon = Icons.Filled.ArrowUpward,
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryTile(
+                    label = "Expenses",
+                    caption = monthName,
+                    amount = Money.display(state.monthTotals.expensePaise, hidden, withDecimals = false),
+                    color = FinExpense,
+                    icon = Icons.Filled.ArrowDownward,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        item(key = "actions") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                QuickAction("Add expense", Icons.Filled.Remove, FinExpense, onAddExpense, Modifier.weight(1f))
+                QuickAction("Add income", Icons.Filled.Add, FinAccent, onAddIncome, Modifier.weight(1f))
+                QuickAction("History", Icons.Filled.History, FinTextSecondary, onOpenHistory, Modifier.weight(1f))
+            }
+        }
+
+        item(key = "recent_header") {
+            SectionHeader(
+                title = "Recent transactions",
+                actionLabel = if (state.transactionCount > 0) "See all" else null,
+                onAction = onOpenHistory
             )
         }
 
-        // C. Income & Expense Summary Cards
-        item {
-            IncomeExpenseSummarySection(
-                incomeAmount = totalIncome,
-                expenseAmount = totalExpenses
-            )
+        if (state.loaded && state.recent.isEmpty()) {
+            item(key = "recent_empty") {
+                FinSurfaceCard {
+                    EmptyState(
+                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                        title = "No transactions yet",
+                        message = "Add your first income or expense to start tracking your money.",
+                        actionLabel = "Add expense",
+                        onAction = onAddExpense
+                    )
+                }
+            }
+        } else {
+            items(state.recent, key = { "tx_${it.id}" }) { tx ->
+                TransactionRow(
+                    transaction = tx,
+                    hideAmounts = hidden,
+                    onClick = { onTransactionClick(tx) }
+                )
+            }
         }
 
-        // D. Quick Actions
-        item {
-            QuickActionsSection(
-                onAddIncome = { onQuickAction("Add Income") },
-                onAddExpense = { onQuickAction("Add Expense") },
-                onViewHistory = onSeeAllHistory
-            )
-        }
-
-        // E. Recent Transactions
-        item {
-            RecentTransactionsHeader(onSeeAll = onSeeAllHistory)
-        }
-
-        items(transactions.take(5)) { transaction ->
-            TransactionItemRow(transaction = transaction)
-        }
-
-        // F. Monthly Spending Overview (Donut Chart)
-        item {
-            SpendingOverviewSection(
-                categories = categories,
-                totalExpense = totalExpenses,
-                onCategorySelected = onCategorySelected
-            )
+        if (state.transactionCount > 0) {
+            item(key = "overview") {
+                SpendingOverviewSection(
+                    title = "Spending this month",
+                    subtitle = "By category, $monthName ${state.month.year}",
+                    categories = state.monthCategories,
+                    totalPaise = state.monthTotals.expensePaise,
+                    hideAmounts = hidden
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun HeaderSection(
-    onNotificationClick: () -> Unit
-) {
+private fun HeaderSection(displayName: String, onProfileClick: () -> Unit) {
+    val hour = LocalTime.now().hour
+    val greeting = when (hour) {
+        in 5..11 -> "Good morning"
+        in 12..16 -> "Good afternoon"
+        else -> "Good evening"
+    }
+    val name = displayName.trim()
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Column(modifier = Modifier.weight(1f)) {
+            OverlineLabel("MyFinTrack", color = FinAccent)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = if (name.isEmpty()) greeting else "$greeting, ${name.substringBefore(' ')}",
+                color = FinTextPrimary,
+                style = MaterialTheme.typography.titleLarge
+            )
+        }
+        val initials = name.split(' ').filter { it.isNotBlank() }.take(2)
+            .joinToString("") { it.first().uppercaseChar().toString() }
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(FinCardHover)
+                .border(1.dp, FinAccent.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                .clickable(role = Role.Button, onClickLabel = "Open settings", onClick = onProfileClick)
+                .semantics { contentDescription = "Profile and settings" },
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(FinAccentGlow, RoundedCornerShape(16.dp))
-                    .border(1.dp, FinAccent.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AccountBalanceWallet,
-                    contentDescription = "Wallet",
-                    tint = FinAccent,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Column {
-                Text(
-                    text = "MYFINTRACK",
-                    color = FinAccent,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-                Text(
-                    text = "Good Evening! 👋",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Here's your financial overview.",
-                    color = FinTextSecondary,
-                    fontSize = 11.sp
-                )
+            if (initials.isEmpty()) {
+                Icon(Icons.Filled.Person, contentDescription = null, tint = FinTextSecondary, modifier = Modifier.size(20.dp))
+            } else {
+                Text(initials, color = FinTextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
         }
+    }
+}
 
+@Composable
+private fun BalanceCard(
+    state: DashboardState,
+    hidden: Boolean,
+    onToggleHidden: () -> Unit
+) {
+    FinSurfaceCard(borderColor = FinAccent.copy(alpha = 0.22f), contentPadding = 20.dp) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Notification Bell with Badge
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .background(FinCard, RoundedCornerShape(12.dp))
-                    .border(1.dp, FinBorder, RoundedCornerShape(12.dp))
-                    .clickable { onNotificationClick() },
-                contentAlignment = Alignment.Center
-            ) {
+            OverlineLabel("Net balance", modifier = Modifier.weight(1f))
+            IconButton(onClick = onToggleHidden, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    imageVector = Icons.Outlined.Notifications,
-                    contentDescription = "Notifications",
+                    imageVector = if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = if (hidden) "Show amounts" else "Hide amounts",
                     tint = FinTextSecondary,
                     modifier = Modifier.size(18.dp)
                 )
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .align(Alignment.TopEnd)
-                        .padding(top = 8.dp, end = 8.dp)
-                        .background(FinAccent, CircleShape)
-                )
-            }
-
-            // User Profile Avatar
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(FinCardHover)
-                    .border(1.dp, FinAccent.copy(alpha = 0.4f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "JD",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
             }
         }
-    }
-}
-
-@Composable
-private fun BalanceCardSection(
-    totalBalance: Double,
-    isMasked: Boolean,
-    onToggleMask: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = FinCard),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, FinAccent.copy(alpha = 0.25f), RoundedCornerShape(22.dp))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "TOTAL BALANCE",
-                        color = FinTextSecondary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.5.sp
-                    )
-                    Box(
-                        modifier = Modifier
-                            .background(FinAccentGlow, RoundedCornerShape(12.dp))
-                            .border(1.dp, FinAccent.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "Active",
-                            color = FinAccent,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                IconButton(
-                    onClick = onToggleMask,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isMasked) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = "Toggle Balance",
-                        tint = FinTextSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Text(
-                text = if (isMasked) "••••••••" else "₹${String.format("%,.2f", totalBalance)}",
-                color = Color.White,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.5).sp
-            )
-
-            Text(
-                text = "Available across 3 accounts",
-                color = FinTextSecondary,
-                fontSize = 11.sp
-            )
-
-            HorizontalDivider(color = FinBorder.copy(alpha = 0.6f))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier
-                        .background(FinAccentGlow, RoundedCornerShape(8.dp))
-                        .border(1.dp, FinAccent.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.TrendingUp,
-                        contentDescription = null,
-                        tint = FinAccent,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = "+12.4% vs last month",
-                        color = FinAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                // Mini Sparkline Bars
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    modifier = Modifier.height(20.dp)
-                ) {
-                    val heights = listOf(8.dp, 12.dp, 6.dp, 16.dp, 14.dp, 20.dp)
-                    heights.forEachIndexed { index, h ->
-                        Box(
-                            modifier = Modifier
-                                .width(4.dp)
-                                .height(h)
-                                .background(
-                                    if (index == heights.lastIndex) FinAccent else FinAccent.copy(alpha = 0.4f),
-                                    RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)
-                                )
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun IncomeExpenseSummarySection(
-    incomeAmount: Double,
-    expenseAmount: Double
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        // Income Card
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = FinCard),
-            modifier = Modifier
-                .weight(1f)
-                .border(1.dp, FinAccent.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(FinAccentGlow, RoundedCornerShape(10.dp))
-                            .border(1.dp, FinAccent.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowUpward,
-                            contentDescription = "Income",
-                            tint = FinAccent,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    Text(
-                        text = "This Month",
-                        color = FinTextSecondary,
-                        fontSize = 9.sp,
-                        modifier = Modifier
-                            .background(FinCardHover, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                Text("Total Income", color = FinTextSecondary, fontSize = 11.sp)
-                Text(
-                    text = "₹${String.format("%,.0f", incomeAmount)}",
-                    color = FinAccent,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // Expense Card
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = FinCard),
-            modifier = Modifier
-                .weight(1f)
-                .border(1.dp, FinExpense.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(FinExpenseGlow, RoundedCornerShape(10.dp))
-                            .border(1.dp, FinExpense.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDownward,
-                            contentDescription = "Expense",
-                            tint = FinExpense,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    Text(
-                        text = "This Month",
-                        color = FinTextSecondary,
-                        fontSize = 9.sp,
-                        modifier = Modifier
-                            .background(FinCardHover, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                Text("Total Expenses", color = FinTextSecondary, fontSize = 11.sp)
-                Text(
-                    text = "₹${String.format("%,.0f", expenseAmount)}",
-                    color = FinExpense,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuickActionsSection(
-    onAddIncome: () -> Unit,
-    onAddExpense: () -> Unit,
-    onViewHistory: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            text = "QUICK ACTIONS",
+            text = Money.display(state.balancePaise, hidden),
+            color = if (state.balancePaise < 0 && !hidden) FinExpense else FinTextPrimary,
+            style = MaterialTheme.typography.headlineMedium,
+            maxLines = 1
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = "All recorded income minus expenses",
             color = FinTextSecondary,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
+            style = MaterialTheme.typography.bodySmall
         )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Add Income Button
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(FinAccentGlow, RoundedCornerShape(18.dp))
-                    .border(1.dp, FinAccent.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
-                    .clickable { onAddIncome() }
-                    .padding(12.dp),
-                contentAlignment = Alignment.Center
+        val hasHistory = state.lastSixMonths.any { it.totals.incomePaise > 0 || it.totals.expensePaise > 0 }
+        if (state.expenseChangePercent != null || hasHistory) {
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider(color = FinBorder)
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(FinAccent, RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add Income",
-                            tint = Color.Black
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text("Add Income", color = FinAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                val change = state.expenseChangePercent
+                if (change != null) {
+                    val lower = change <= 0
+                    InfoPill(
+                        text = if (change == 0) "Spending same as last month"
+                        else "Spending ${abs(change)}% ${if (lower) "lower" else "higher"} vs last month",
+                        color = if (lower) FinAccent else FinWarning,
+                        icon = if (lower) Icons.AutoMirrored.Filled.TrendingDown else Icons.AutoMirrored.Filled.TrendingUp
+                    )
+                } else {
+                    Text("Monthly net, last 6 months", color = FinTextMuted, fontSize = 11.sp)
                 }
-            }
-
-            // Add Expense Button
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(FinExpenseGlow, RoundedCornerShape(18.dp))
-                    .border(1.dp, FinExpense.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
-                    .clickable { onAddExpense() }
-                    .padding(12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(FinExpense, RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Remove,
-                            contentDescription = "Add Expense",
-                            tint = Color.White
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text("Add Expense", color = FinExpense, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            // View History Button
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(FinCard, RoundedCornerShape(18.dp))
-                    .border(1.dp, FinBorder, RoundedCornerShape(18.dp))
-                    .clickable { onViewHistory() }
-                    .padding(12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(FinCardHover, RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = "View History",
-                            tint = FinTextSecondary
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text("View History", color = FinTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                if (hasHistory) {
+                    NetSparkline(state.lastSixMonths)
                 }
             }
         }
     }
 }
 
+/** Six bars, one per month: height = size of net result, colour = surplus (green) or deficit (red). */
 @Composable
-private fun RecentTransactionsHeader(onSeeAll: () -> Unit) {
+private fun NetSparkline(months: List<FinanceCalculator.MonthTotals>) {
+    val maxAbs = months.maxOfOrNull { abs(it.totals.netPaise) }?.takeIf { it > 0L } ?: 1L
+    val description = "Monthly net for the last ${months.size} months"
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.Bottom,
+        modifier = Modifier
+            .height(24.dp)
+            .semantics { contentDescription = description }
     ) {
-        Text(
-            text = "Recent Transactions",
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold
-        )
-        TextButton(onClick = onSeeAll) {
-            Text("See All", color = FinAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = FinAccent,
-                modifier = Modifier.size(16.dp)
+        months.forEach { m ->
+            val net = m.totals.netPaise
+            val ratio = abs(net).toFloat() / maxAbs.toFloat()
+            Box(
+                modifier = Modifier
+                    .width(5.dp)
+                    .fillMaxHeight(ratio.coerceIn(0.12f, 1f))
+                    .background(
+                        if (net >= 0L) FinAccent else FinExpense,
+                        RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)
+                    )
             )
         }
     }
 }
 
 @Composable
-fun TransactionItemRow(transaction: Transaction) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = FinCard),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, FinBorder, RoundedCornerShape(16.dp))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+private fun SummaryTile(
+    label: String,
+    caption: String,
+    amount: String,
+    color: Color,
+    icon: ImageVector,
+    modifier: Modifier = Modifier
+) {
+    FinSurfaceCard(modifier = modifier, borderColor = color.copy(alpha = 0.22f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(color.copy(alpha = 0.14f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
             ) {
-                val (icon, iconColor) = getTransactionIcon(transaction.category)
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(iconColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                        .border(1.dp, iconColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = iconColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Column {
-                    Text(
-                        text = transaction.title,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = transaction.category,
-                            color = FinTextSecondary,
-                            fontSize = 10.sp,
-                            modifier = Modifier
-                                .background(FinBg, RoundedCornerShape(4.dp))
-                                .border(1.dp, FinBorder, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        )
-                        Text("•", color = FinTextSecondary, fontSize = 10.sp)
-                        Text(transaction.date, color = FinTextSecondary, fontSize = 10.sp)
-                    }
-                }
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
             }
-
-            Column(horizontalAlignment = Alignment.End) {
-                val isIncome = transaction.type == TransactionType.INCOME
-                Text(
-                    text = "${if (isIncome) "+" else "-"}₹${String.format("%,.0f", transaction.amount)}",
-                    color = if (isIncome) FinAccent else FinExpense,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = transaction.paymentMethod,
-                    color = FinTextSecondary,
-                    fontSize = 9.sp
-                )
-            }
+            Spacer(Modifier.weight(1f))
+            Text(caption, color = FinTextMuted, fontSize = 10.sp)
         }
+        Spacer(Modifier.height(10.dp))
+        Text(label, color = FinTextSecondary, style = MaterialTheme.typography.bodySmall)
+        Text(amount, color = color, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
-private fun getTransactionIcon(category: String): Pair<ImageVector, Color> {
-    return when (category.lowercase()) {
-        "income", "salary" -> Icons.Default.Work to Color(0xFF10B981)
-        "food" -> Icons.Default.LocalCafe to Color(0xFFF59E0B)
-        "transport" -> Icons.Default.DirectionsBus to Color(0xFF3B82F6)
-        "friend" -> Icons.Default.Group to Color(0xFFA855F7)
-        "shopping" -> Icons.Default.ShoppingCart to Color(0xFFF43F5E)
-        else -> Icons.Default.ReceiptLong to Color(0xFF64748B)
+@Composable
+private fun QuickAction(
+    label: String,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(FinCard)
+            .border(1.dp, FinBorder, RoundedCornerShape(18.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(color.copy(alpha = 0.16f), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, color = FinTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }

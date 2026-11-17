@@ -2,38 +2,41 @@ package com.myfintrack.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.myfintrack.app.components.AddTransactionDialog
-import com.myfintrack.app.components.ToastNotification
-import com.myfintrack.app.model.*
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.myfintrack.app.components.EditorRequest
+import com.myfintrack.app.components.TransactionEditorSheet
+import com.myfintrack.app.model.NavTab
+import com.myfintrack.app.model.TransactionType
 import com.myfintrack.app.screens.AnalysisScreen
 import com.myfintrack.app.screens.HistoryScreen
 import com.myfintrack.app.screens.HomeScreen
 import com.myfintrack.app.screens.SettingsScreen
 import com.myfintrack.app.theme.*
-import kotlinx.coroutines.delay
+import com.myfintrack.app.viewmodel.FinanceViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
         setContent {
             MyFinTrackTheme {
                 MainAppContent()
@@ -42,224 +45,148 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class TabSpec(val tab: NavTab, val label: String, val icon: ImageVector)
+
+private val TABS = listOf(
+    TabSpec(NavTab.HOME, "Home", Icons.Filled.Home),
+    TabSpec(NavTab.HISTORY, "History", Icons.AutoMirrored.Filled.ReceiptLong),
+    TabSpec(NavTab.ANALYSIS, "Analysis", Icons.Filled.PieChart),
+    TabSpec(NavTab.SETTINGS, "Settings", Icons.Filled.Settings)
+)
+
 @Composable
-fun MainAppContent() {
-    var currentTab by remember { mutableStateOf(NavTab.HOME) }
-    var isBalanceMasked by remember { mutableStateOf(false) }
-    var toastMessage by remember { mutableStateOf<String?>(null) }
-    var showAddDialog by remember { mutableStateOf(false) }
-    var dialogInitialType by remember { mutableStateOf(TransactionType.INCOME) }
+fun MainAppContent(viewModel: FinanceViewModel = viewModel()) {
+    val transactions by viewModel.transactions.collectAsState()
+    val loaded by viewModel.loaded.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    val dashboard by viewModel.dashboard.collectAsState()
 
-    var transactions by remember { mutableStateOf(SampleData.initialTransactions) }
-    val categories by remember { mutableStateOf(SampleData.categoryBreakdown) }
+    var currentTab by rememberSaveable { mutableStateOf(NavTab.HOME) }
+    var editorRequest by remember { mutableStateOf<EditorRequest?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // Auto dismiss Toast
-    LaunchedEffect(toastMessage) {
-        if (toastMessage != null) {
-            delay(2500)
-            toastMessage = null
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { message ->
+            snackbarHostState.currentSnackbarData?.dismiss()
+            val result = snackbarHostState.showSnackbar(
+                message = message.text,
+                actionLabel = message.actionLabel,
+                withDismissAction = message.actionLabel == null,
+                duration = if (message.actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) message.onAction?.invoke()
         }
     }
 
-    val showToast: (String) -> Unit = { msg ->
-        toastMessage = msg
+    // System back returns to Home before leaving the app.
+    BackHandler(enabled = currentTab != NavTab.HOME && editorRequest == null) {
+        currentTab = NavTab.HOME
     }
 
-    val totalExpense = transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+    val openEditor: (TransactionType) -> Unit = { type -> editorRequest = EditorRequest(initialType = type) }
 
     Scaffold(
         containerColor = FinBg,
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = FinCardHover,
+                    contentColor = FinTextPrimary,
+                    actionColor = FinAccent,
+                    dismissActionContentColor = FinTextSecondary
+                )
+            }
+        },
+        floatingActionButton = {
+            if (currentTab == NavTab.HOME || currentTab == NavTab.HISTORY) {
+                ExtendedFloatingActionButton(
+                    onClick = { openEditor(TransactionType.EXPENSE) },
+                    containerColor = FinAccent,
+                    contentColor = Color(0xFF052E16),
+                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                    text = { Text("Add", fontWeight = FontWeight.Bold) }
+                )
+            }
+        },
         bottomBar = {
-            BottomNavBar(
-                currentTab = currentTab,
-                onTabSelected = { tab ->
-                    currentTab = tab
-                    if (tab != NavTab.HOME) {
-                        showToast("Navigated to ${tab.name.lowercase().replaceFirstChar { it.uppercase() }} view")
-                    }
+            NavigationBar(containerColor = FinSurface, tonalElevation = 0.dp) {
+                TABS.forEach { spec ->
+                    NavigationBarItem(
+                        selected = currentTab == spec.tab,
+                        onClick = { currentTab = spec.tab },
+                        icon = { Icon(spec.icon, contentDescription = null) },
+                        label = { Text(spec.label, fontSize = 11.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = FinAccent,
+                            selectedTextColor = FinAccent,
+                            indicatorColor = FinAccentGlow,
+                            unselectedIconColor = FinTextSecondary,
+                            unselectedTextColor = FinTextSecondary
+                        )
+                    )
                 }
-            )
+            }
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            when (currentTab) {
-                NavTab.HOME -> {
-                    HomeScreen(
-                        transactions = transactions,
-                        categories = categories,
-                        isBalanceMasked = isBalanceMasked,
-                        onToggleBalanceMask = {
-                            isBalanceMasked = !isBalanceMasked
-                            showToast(if (isBalanceMasked) "Balance masked for privacy" else "Balance now visible")
-                        },
-                        onNotificationClick = {
-                            showToast("Notifications: You have 1 unread update")
-                        },
-                        onQuickAction = { action ->
-                            if (action == "Add Income") {
-                                dialogInitialType = TransactionType.INCOME
-                                showAddDialog = true
-                            } else if (action == "Add Expense") {
-                                dialogInitialType = TransactionType.EXPENSE
-                                showAddDialog = true
-                            } else if (action == "View History") {
-                                currentTab = NavTab.HISTORY
-                            }
-                        },
-                        onSeeAllHistory = {
-                            currentTab = NavTab.HISTORY
-                        },
-                        onCategorySelected = { cat ->
-                            showToast("Category ${cat.category}: ₹${cat.amount.toInt()} (${cat.percentage.toInt()}%)")
-                        }
-                    )
-                }
+        val contentModifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
 
-                NavTab.HISTORY -> {
-                    HistoryScreen(
-                        transactions = transactions,
-                        onAddTransaction = {
-                            dialogInitialType = TransactionType.EXPENSE
-                            showAddDialog = true
-                        }
-                    )
-                }
-
-                NavTab.ANALYSIS -> {
-                    AnalysisScreen(
-                        categories = categories,
-                        totalExpense = totalExpense,
-                        onCategorySelected = { cat ->
-                            showToast("Category ${cat.category}: ₹${cat.amount.toInt()} (${cat.percentage.toInt()}%)")
-                        }
-                    )
-                }
-
-                NavTab.SETTINGS -> {
-                    SettingsScreen(
-                        isBalanceMasked = isBalanceMasked,
-                        onToggleBalanceMask = {
-                            isBalanceMasked = !isBalanceMasked
-                            showToast(if (isBalanceMasked) "Balance masked for privacy" else "Balance now visible")
-                        },
-                        onActionToast = showToast
-                    )
-                }
-            }
-
-            // Top Toast Overlay
-            ToastNotification(
-                message = toastMessage,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
+        when (currentTab) {
+            NavTab.HOME -> HomeScreen(
+                state = dashboard,
+                settings = settings,
+                onToggleHideBalances = { viewModel.setHideBalances(!settings.hideBalances) },
+                onAddIncome = { openEditor(TransactionType.INCOME) },
+                onAddExpense = { openEditor(TransactionType.EXPENSE) },
+                onOpenHistory = { currentTab = NavTab.HISTORY },
+                onOpenSettings = { currentTab = NavTab.SETTINGS },
+                onTransactionClick = { tx -> editorRequest = EditorRequest(tx.type, tx) },
+                modifier = contentModifier
             )
-        }
 
-        // Add Transaction Dialog Modal
-        if (showAddDialog) {
-            AddTransactionDialog(
-                initialType = dialogInitialType,
-                onDismiss = { showAddDialog = false },
-                onSave = { newTx ->
-                    transactions = listOf(newTx) + transactions
-                    showAddDialog = false
-                    showToast("${newTx.category} transaction added!")
-                }
+            NavTab.HISTORY -> HistoryScreen(
+                transactions = transactions,
+                loaded = loaded,
+                hideAmounts = settings.hideBalances,
+                onAddTransaction = { openEditor(TransactionType.EXPENSE) },
+                onTransactionClick = { tx -> editorRequest = EditorRequest(tx.type, tx) },
+                modifier = contentModifier
+            )
+
+            NavTab.ANALYSIS -> AnalysisScreen(
+                transactions = transactions,
+                hideAmounts = settings.hideBalances,
+                onAddTransaction = { openEditor(TransactionType.EXPENSE) },
+                onTransactionClick = { tx -> editorRequest = EditorRequest(tx.type, tx) },
+                modifier = contentModifier
+            )
+
+            NavTab.SETTINGS -> SettingsScreen(
+                settings = settings,
+                transactionCount = transactions.size,
+                onHideBalancesChange = viewModel::setHideBalances,
+                onDisplayNameChange = viewModel::setDisplayName,
+                onExportCsv = viewModel::exportCsv,
+                onDeleteAllData = viewModel::deleteAllData,
+                modifier = contentModifier
             )
         }
     }
-}
 
-@Composable
-private fun BottomNavBar(
-    currentTab: NavTab,
-    onTabSelected: (NavTab) -> Unit
-) {
-    Surface(
-        color = FinBg,
-        tonalElevation = 8.dp,
-        modifier = Modifier.border(1.dp, FinBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp, horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            NavNavItem(
-                title = "Home",
-                icon = Icons.Default.Home,
-                isSelected = currentTab == NavTab.HOME,
-                onClick = { onTabSelected(NavTab.HOME) }
-            )
-            NavNavItem(
-                title = "History",
-                icon = Icons.Default.Receipt,
-                isSelected = currentTab == NavTab.HISTORY,
-                onClick = { onTabSelected(NavTab.HISTORY) }
-            )
-            NavNavItem(
-                title = "Analysis",
-                icon = Icons.Default.PieChart,
-                isSelected = currentTab == NavTab.ANALYSIS,
-                onClick = { onTabSelected(NavTab.ANALYSIS) }
-            )
-            NavNavItem(
-                title = "Settings",
-                icon = Icons.Default.Settings,
-                isSelected = currentTab == NavTab.SETTINGS,
-                onClick = { onTabSelected(NavTab.SETTINGS) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun NavNavItem(
-    title: String,
-    icon: ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.height(56.dp)
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = if (isSelected) FinAccent else FinTextSecondary,
-                    modifier = Modifier.size(22.dp)
-                )
+    editorRequest?.let { request ->
+        TransactionEditorSheet(
+            request = request,
+            onDismiss = { editorRequest = null },
+            onSave = { tx ->
+                viewModel.saveTransaction(tx)
+                editorRequest = null
+            },
+            onDelete = { tx ->
+                viewModel.deleteTransaction(tx)
+                editorRequest = null
             }
-            Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = title,
-                    color = if (isSelected) FinAccent else FinTextSecondary,
-                    fontSize = 10.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                )
-                if (isSelected) {
-                    Spacer(Modifier.width(3.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(4.dp)
-                            .background(FinAccent, CircleShape)
-                    )
-                }
-            }
-        }
+        )
     }
 }

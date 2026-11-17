@@ -1,109 +1,198 @@
 package com.myfintrack.app.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.myfintrack.app.components.*
+import com.myfintrack.app.data.SettingsRepository
+import com.myfintrack.app.model.AppSettings
 import com.myfintrack.app.theme.*
+import java.time.LocalDate
 
 @Composable
 fun SettingsScreen(
-    isBalanceMasked: Boolean,
-    onToggleBalanceMask: () -> Unit,
-    onActionToast: (String) -> Unit,
+    settings: AppSettings,
+    transactionCount: Int,
+    onHideBalancesChange: (Boolean) -> Unit,
+    onDisplayNameChange: (String) -> Unit,
+    onExportCsv: (android.net.Uri) -> Unit,
+    onDeleteAllData: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var notificationsEnabled by remember { mutableStateOf(true) }
-    var currency by remember { mutableStateOf("INR (₹)") }
+    var editName by remember { mutableStateOf(false) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+
+    // Storage Access Framework: the user picks where to save. No storage permission needed.
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri -> if (uri != null) onExportCsv(uri) }
 
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Column {
-                Text(
-                    text = "App Settings",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Manage your preferences & privacy",
-                    color = FinTextSecondary,
-                    fontSize = 11.sp
-                )
-            }
-        }
-
-        // Section: Privacy & Security
-        item {
-            Text("PRIVACY & SECURITY", color = FinTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        }
-
-        item {
-            SettingSwitchTile(
-                icon = Icons.Default.VisibilityOff,
-                title = "Mask Balance by Default",
-                subtitle = "Hide total balance figures on startup",
-                checked = isBalanceMasked,
-                onCheckedChange = {
-                    onToggleBalanceMask()
-                }
+            Text(
+                "Settings",
+                color = FinTextPrimary,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() }
             )
         }
 
-        // Section: Preferences
-        item {
-            Text("PREFERENCES", color = FinTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        }
-
-        item {
-            SettingSwitchTile(
-                icon = Icons.Default.Notifications,
-                title = "Push Notifications",
-                subtitle = "Receive daily financial summaries & alerts",
-                checked = notificationsEnabled,
-                onCheckedChange = {
-                    notificationsEnabled = it
-                    onActionToast(if (it) "Notifications Enabled" else "Notifications Disabled")
-                }
-            )
-        }
-
+        item { GroupLabel("Profile") }
         item {
             SettingActionTile(
-                icon = Icons.Default.AttachMoney,
-                title = "Currency Format",
-                subtitle = currency,
-                onClick = { onActionToast("Currency set to INR (₹)") }
+                icon = Icons.Filled.Person,
+                title = "Display name",
+                subtitle = settings.displayName.ifBlank { "Not set, used for your greeting" },
+                onClick = { editName = true }
             )
         }
 
+        item { GroupLabel("Privacy") }
         item {
-            SettingActionTile(
-                icon = Icons.Default.Download,
-                title = "Export Financial Statement",
-                subtitle = "Download CSV or PDF transaction history",
-                onClick = { onActionToast("Export feature coming soon") }
+            SettingSwitchTile(
+                icon = Icons.Filled.VisibilityOff,
+                title = "Hide amounts",
+                subtitle = "Mask balances and amounts on every screen. Saved between launches.",
+                checked = settings.hideBalances,
+                onCheckedChange = onHideBalancesChange
             )
         }
+        item {
+            InfoTile(
+                icon = Icons.Filled.Lock,
+                title = "Stored on this device",
+                subtitle = "Your transactions are saved locally and never sent to any server."
+            )
+        }
+
+        item { GroupLabel("Data") }
+        item {
+            SettingActionTile(
+                icon = Icons.Filled.Download,
+                title = "Export to CSV",
+                subtitle = if (transactionCount == 0) "Nothing to export yet"
+                else "Save all $transactionCount transactions as a spreadsheet file",
+                enabled = transactionCount > 0,
+                onClick = { exportLauncher.launch("myfintrack-${LocalDate.now()}.csv") }
+            )
+        }
+        item {
+            SettingActionTile(
+                icon = Icons.Filled.DeleteForever,
+                title = "Delete all data",
+                subtitle = "Permanently erase transactions and settings from this device",
+                tint = FinExpense,
+                onClick = { confirmDeleteAll = true }
+            )
+        }
+
+        item { GroupLabel("About") }
+        item {
+            InfoTile(
+                icon = Icons.Filled.AttachMoney,
+                title = "Currency",
+                subtitle = "Indian Rupee (\u20b9), Indian number grouping"
+            )
+        }
+    }
+
+    if (editName) {
+        var draft by remember { mutableStateOf(settings.displayName) }
+        AlertDialog(
+            onDismissRequest = { editName = false },
+            title = { Text("Display name") },
+            text = {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { if (it.length <= SettingsRepository.MAX_NAME_LENGTH) draft = it },
+                    singleLine = true,
+                    placeholder = { Text("Your name") },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                    colors = finTextFieldColors(FinAccent)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDisplayNameChange(draft)
+                    editName = false
+                }) { Text("Save", color = FinAccent, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editName = false }) { Text("Cancel", color = FinTextSecondary) }
+            },
+            containerColor = FinCard
+        )
+    }
+
+    if (confirmDeleteAll) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteAll = false },
+            title = { Text("Delete all data?") },
+            text = {
+                Text(
+                    "This permanently removes all $transactionCount transactions and your settings from this device. " +
+                        "It cannot be undone. Export a CSV first if you want a copy."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDeleteAll = false
+                    onDeleteAllData()
+                }) { Text("Delete everything", color = FinExpense, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel", color = FinTextSecondary) }
+            },
+            containerColor = FinCard
+        )
+    }
+}
+
+@Composable
+private fun GroupLabel(text: String) {
+    OverlineLabel(text, modifier = Modifier.padding(top = 10.dp, start = 4.dp))
+}
+
+@Composable
+private fun TileIcon(icon: ImageVector, tint: Color) {
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .background(tint.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -115,50 +204,31 @@ private fun SettingSwitchTile(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = FinCard),
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, FinBorder, RoundedCornerShape(16.dp))
+            .clip(FinCardShape).background(FinCard)
+            .clickable(role = Role.Switch) { onCheckedChange(!checked) }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(FinCardHover, RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = FinAccent, modifier = Modifier.size(18.dp))
-                }
-                Column {
-                    Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text(subtitle, color = FinTextSecondary, fontSize = 10.sp)
-                }
-            }
-
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.Black,
-                    checkedTrackColor = FinAccent,
-                    uncheckedThumbColor = FinTextSecondary,
-                    uncheckedTrackColor = FinCardHover
-                )
-            )
+        TileIcon(icon, FinAccent)
+        Column(Modifier.weight(1f)) {
+            Text(title, color = FinTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = FinTextSecondary, fontSize = 11.sp)
         }
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color(0xFF052E16),
+                checkedTrackColor = FinAccent,
+                uncheckedThumbColor = FinTextSecondary,
+                uncheckedTrackColor = FinCardHover,
+                uncheckedBorderColor = FinBorderLight
+            )
+        )
     }
 }
 
@@ -167,42 +237,48 @@ private fun SettingActionTile(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    tint: Color = FinAccent
 ) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = FinCard),
+    val alpha = if (enabled) 1f else 0.45f
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, FinBorder, RoundedCornerShape(16.dp))
-            .clickable { onClick() }
+            .clip(FinCardShape).background(FinCard)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(FinCardHover, RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = FinAccent, modifier = Modifier.size(18.dp))
-                }
-                Column {
-                    Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text(subtitle, color = FinTextSecondary, fontSize = 10.sp)
-                }
-            }
+        TileIcon(icon, tint.copy(alpha = alpha))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = if (tint == FinExpense) FinExpense else FinTextPrimary.copy(alpha = alpha),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(subtitle, color = FinTextSecondary.copy(alpha = alpha), fontSize = 11.sp)
+        }
+        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = FinTextMuted, modifier = Modifier.size(18.dp))
+    }
+}
 
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = FinTextSecondary, modifier = Modifier.size(18.dp))
+@Composable
+private fun InfoTile(icon: ImageVector, title: String, subtitle: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(FinCardShape).background(FinCard)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        TileIcon(icon, FinTextSecondary)
+        Column(Modifier.weight(1f)) {
+            Text(title, color = FinTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = FinTextSecondary, fontSize = 11.sp)
         }
     }
 }

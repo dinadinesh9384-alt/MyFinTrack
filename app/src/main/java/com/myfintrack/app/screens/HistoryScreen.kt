@@ -1,148 +1,244 @@
 package com.myfintrack.app.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.myfintrack.app.components.*
+import com.myfintrack.app.domain.FinanceCalculator
+import com.myfintrack.app.domain.Money
 import com.myfintrack.app.model.Transaction
 import com.myfintrack.app.model.TransactionType
 import com.myfintrack.app.theme.*
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
+
+enum class HistoryTypeFilter(val label: String) { ALL("All"), EXPENSE("Expenses"), INCOME("Income") }
+
+enum class HistoryPeriod(val label: String) { ALL_TIME("All time"), THIS_MONTH("This month"), LAST_MONTH("Last month") }
+
+private data class DayGroup(val date: LocalDate, val items: List<Transaction>, val netPaise: Long)
 
 @Composable
 fun HistoryScreen(
     transactions: List<Transaction>,
+    loaded: Boolean,
+    hideAmounts: Boolean,
     onAddTransaction: () -> Unit,
+    onTransactionClick: (Transaction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf("All") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var typeFilter by rememberSaveable { mutableStateOf(HistoryTypeFilter.ALL) }
+    var period by rememberSaveable { mutableStateOf(HistoryPeriod.ALL_TIME) }
+    val zone = remember { ZoneId.systemDefault() }
 
-    val filteredTransactions = transactions.filter { tx ->
-        val matchesType = when (selectedFilter) {
-            "Income" -> tx.type == TransactionType.INCOME
-            "Expense" -> tx.type == TransactionType.EXPENSE
-            else -> true
+    val filtered = remember(transactions, query, typeFilter, period) {
+        val q = query.trim()
+        val range = when (period) {
+            HistoryPeriod.ALL_TIME -> null
+            HistoryPeriod.THIS_MONTH -> FinanceCalculator.monthRange(YearMonth.now(zone), zone)
+            HistoryPeriod.LAST_MONTH -> FinanceCalculator.monthRange(YearMonth.now(zone).minusMonths(1), zone)
         }
-        val matchesSearch = tx.title.contains(searchQuery, ignoreCase = true) ||
-                tx.category.contains(searchQuery, ignoreCase = true)
-        matchesType && matchesSearch
+        transactions.filter { tx ->
+            val typeOk = when (typeFilter) {
+                HistoryTypeFilter.ALL -> true
+                HistoryTypeFilter.EXPENSE -> tx.type == TransactionType.EXPENSE
+                HistoryTypeFilter.INCOME -> tx.type == TransactionType.INCOME
+            }
+            val periodOk = range == null || tx.occurredAt in range
+            val queryOk = q.isEmpty() ||
+                tx.title.contains(q, ignoreCase = true) ||
+                tx.category.label.contains(q, ignoreCase = true) ||
+                tx.note.contains(q, ignoreCase = true) ||
+                tx.paymentMethod.label.contains(q, ignoreCase = true)
+            typeOk && periodOk && queryOk
+        }
     }
+    val totals = remember(filtered) { FinanceCalculator.totals(filtered) }
+    val groups = remember(filtered) {
+        filtered
+            .groupBy { FinanceCalculator.localDate(it.occurredAt, zone) }
+            .map { (date, items) -> DayGroup(date, items, FinanceCalculator.totals(items).netPaise) }
+    }
+    val today = LocalDate.now(zone)
+    val filtersActive = query.isNotBlank() || typeFilter != HistoryTypeFilter.ALL || period != HistoryPeriod.ALL_TIME
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Title & Add button
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Column(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column {
-                Text(
-                    text = "Transaction History",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${filteredTransactions.size} transactions listed",
-                    color = FinTextSecondary,
-                    fontSize = 11.sp
-                )
-            }
+            Text(
+                "History",
+                color = FinTextPrimary,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() }
+            )
 
-            Button(
-                onClick = onAddTransaction,
-                colors = ButtonDefaults.buttonColors(containerColor = FinAccent, contentColor = Color.Black),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add", modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Add", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            }
-        }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Search title, category, note", color = FinTextMuted, fontSize = 13.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = FinTextSecondary) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = FinTextSecondary)
+                        }
+                    }
+                },
+                singleLine = true,
+                colors = finTextFieldColors(FinAccent),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
 
-        // Search Bar
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("Search transactions...", color = FinTextSecondary, fontSize = 13.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = FinTextSecondary) },
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = FinAccent,
-                unfocusedBorderColor = FinBorder,
-                focusedContainerColor = FinCard,
-                unfocusedContainerColor = FinCard,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
-            ),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        // Type Filter Chips (All, Income, Expense)
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            listOf("All", "Income", "Expense").forEach { filter ->
-                val isSelected = selectedFilter == filter
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(if (isSelected) FinAccent else FinCard, RoundedCornerShape(12.dp))
-                        .border(1.dp, if (isSelected) FinAccent else FinBorder, RoundedCornerShape(12.dp))
-                        .clickable { selectedFilter = filter }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = filter,
-                        color = if (isSelected) Color.Black else FinTextSecondary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        }
-
-        // List
-        if (filteredTransactions.isEmpty()) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 80.dp),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("No transactions found", color = FinTextSecondary, fontSize = 14.sp)
+                HistoryTypeFilter.entries.forEach { f ->
+                    FinChip(label = f.label, selected = typeFilter == f, onClick = { typeFilter = f })
+                }
+                VerticalDivider(modifier = Modifier.height(32.dp).align(Alignment.CenterVertically), color = FinBorder)
+                HistoryPeriod.entries.forEach { p ->
+                    FinChip(label = p.label, selected = period == p, onClick = { period = p })
+                }
             }
-        } else {
-            LazyColumn(
-                contentPadding = PaddingValues(bottom = 100.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+
+            if (filtered.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        "${filtered.size} transaction${if (filtered.size == 1) "" else "s"}",
+                        color = FinTextSecondary,
+                        fontSize = 11.sp
+                    )
+                    if (typeFilter != HistoryTypeFilter.EXPENSE) {
+                        Text(
+                            "In " + Money.display(totals.incomePaise, hideAmounts, withDecimals = false),
+                            color = FinAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    if (typeFilter != HistoryTypeFilter.INCOME) {
+                        Text(
+                            "Out " + Money.display(totals.expensePaise, hideAmounts, withDecimals = false),
+                            color = FinExpense,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+
+        when {
+            !loaded -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = FinAccent)
+            }
+
+            transactions.isEmpty() -> EmptyState(
+                icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                title = "No transactions yet",
+                message = "Everything you add will appear here, grouped by day.",
+                actionLabel = "Add transaction",
+                onAction = onAddTransaction
+            )
+
+            filtered.isEmpty() -> EmptyState(
+                icon = Icons.Filled.Search,
+                title = "No matches",
+                message = "Try a different search or filter.",
+                actionLabel = if (filtersActive) "Clear filters" else null,
+                onAction = {
+                    query = ""
+                    typeFilter = HistoryTypeFilter.ALL
+                    period = HistoryPeriod.ALL_TIME
+                }
+            )
+
+            else -> LazyColumn(
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filteredTransactions) { tx ->
-                    TransactionItemRow(transaction = tx)
+                groups.forEach { group ->
+                    item(key = "day_${group.date.toEpochDay()}") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp, bottom = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                longDayLabel(group.date, today),
+                                color = FinTextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.semantics { heading() }
+                            )
+                            if (!hideAmounts) {
+                                Text(
+                                    Money.formatSigned(group.netPaise, group.netPaise >= 0L, withDecimals = false),
+                                    color = if (group.netPaise >= 0L) FinAccent else FinExpense,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                    items(group.items, key = { "tx_${it.id}" }) { tx ->
+                        TransactionRow(
+                            transaction = tx,
+                            hideAmounts = hideAmounts,
+                            onClick = { onTransactionClick(tx) },
+                            showDate = false
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+fun FinChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+        shape = RoundedCornerShape(12.dp),
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = FinCard,
+            labelColor = FinTextSecondary,
+            selectedContainerColor = FinAccent.copy(alpha = 0.18f),
+            selectedLabelColor = FinAccent
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = FinBorder,
+            selectedBorderColor = FinAccent.copy(alpha = 0.5f)
+        )
+    )
 }
