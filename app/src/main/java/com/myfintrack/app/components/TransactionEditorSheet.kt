@@ -141,6 +141,12 @@ fun TransactionEditorSheet(
                             paymentMethod = PaymentMethod.BANK_TRANSFER
                         } else {
                             toAccountId = null
+                            // Leaving Transfer: don't keep the transfer-only payment method.
+                            if (paymentMethod == PaymentMethod.BANK_TRANSFER) {
+                                paymentMethod = existing?.paymentMethod
+                                    ?.takeIf { it != PaymentMethod.BANK_TRANSFER }
+                                    ?: PaymentMethod.UPI
+                            }
                         }
                     }
                 }

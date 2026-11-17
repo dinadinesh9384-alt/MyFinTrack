@@ -42,7 +42,8 @@ fun AnalysisScreen(
     hideAmounts: Boolean,
     onAddTransaction: () -> Unit,
     onTransactionClick: (Transaction) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    accountNames: Map<Long, String> = emptyMap()
 ) {
     val zone = remember { ZoneId.systemDefault() }
     val currentMonth = YearMonth.now(zone)
@@ -190,7 +191,12 @@ fun AnalysisScreen(
             item(key = "largest_header") { SectionHeader("Largest expenses") }
             items(largest.size, key = { "largest_${largest[it].id}" }) { index ->
                 val tx = largest[index]
-                TransactionRow(transaction = tx, hideAmounts = hideAmounts, onClick = { onTransactionClick(tx) })
+                TransactionRow(
+                    transaction = tx,
+                    hideAmounts = hideAmounts,
+                    onClick = { onTransactionClick(tx) },
+                    accountNames = accountNames
+                )
             }
         }
     }

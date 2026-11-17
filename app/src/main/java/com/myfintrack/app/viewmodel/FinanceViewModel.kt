@@ -20,14 +20,19 @@ import com.myfintrack.app.model.Goal
 import com.myfintrack.app.model.GoalContribution
 import com.myfintrack.app.model.GoalProgress
 import com.myfintrack.app.model.Transaction
+import com.myfintrack.app.model.TransactionType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -54,7 +59,9 @@ data class DashboardState(
     val recent: List<Transaction> = emptyList(),
     val monthCategories: List<CategorySpending> = emptyList(),
     val lastSixMonths: List<FinanceCalculator.MonthTotals> = emptyList(),
-    val transactionCount: Int = 0
+    val transactionCount: Int = 0,
+    /** True when some income/expense entries are not linked to any account. */
+    val hasUnlinkedTransactions: Boolean = false
 )
 
 /** One-off message for the snackbar, optionally with an action such as Undo. */
@@ -75,8 +82,19 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     val accounts: StateFlow<List<Account>> = repository.accounts
 
+    /**
+     * Today's date in the device zone. Re-emits when the date changes so month-based
+     * figures (dashboard, budgets, goals) roll over at midnight without needing a data change.
+     */
+    private val currentDate: Flow<LocalDate> = flow {
+        while (true) {
+            emit(LocalDate.now(ZoneId.systemDefault()))
+            delay(60_000)
+        }
+    }.distinctUntilChanged()
+
     val dashboard: StateFlow<DashboardState> =
-        combine(repository.transactions, repository.accounts, repository.loaded) { txs, accs, isLoaded ->
+        combine(repository.transactions, repository.accounts, repository.loaded, currentDate) { txs, accs, isLoaded, _ ->
             buildDashboard(txs, accs, isLoaded)
         }
             .flowOn(Dispatchers.Default)
@@ -98,9 +116,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     /** Budget progress for the current calendar month, most-used first. */
     val budgetProgress: StateFlow<List<BudgetProgress>> =
-        combine(repository.budgets, repository.transactions) { budgets, txs ->
+        combine(repository.budgets, repository.transactions, currentDate) { budgets, txs, today ->
             val zone = ZoneId.systemDefault()
-            val today = LocalDate.now(zone)
             PlanningCalculator.budgetProgress(budgets, txs, YearMonth.from(today), today, zone)
                 .sortedWith(compareBy<BudgetProgress> { it.budget.category != null }.thenByDescending { it.percentUsed })
         }
@@ -108,8 +125,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val goalProgress: StateFlow<List<GoalProgress>> =
-        combine(repository.goals, repository.goalContributions) { goals, contributions ->
-            PlanningCalculator.goalProgress(goals, contributions, LocalDate.now(ZoneId.systemDefault()))
+        combine(repository.goals, repository.goalContributions, currentDate) { goals, contributions, today ->
+            PlanningCalculator.goalProgress(goals, contributions, today)
         }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -305,7 +322,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             recent = txs.take(5),
             monthCategories = FinanceCalculator.categoryBreakdown(monthTxs),
             lastSixMonths = FinanceCalculator.monthlyTotals(txs, month, 6, zone),
-            transactionCount = txs.size
+            transactionCount = txs.size,
+            hasUnlinkedTransactions = txs.any { it.accountId == null && it.type != TransactionType.TRANSFER }
         )
     }
 }

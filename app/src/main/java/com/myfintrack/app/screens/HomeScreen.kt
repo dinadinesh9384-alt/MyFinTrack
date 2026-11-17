@@ -244,7 +244,8 @@ private fun BalanceCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = if (state.activeAccountCount == 0) "All recorded income minus expenses"
-                else "Across ${state.activeAccountCount} account${if (state.activeAccountCount == 1) "" else "s"}, transfers excluded",
+                else "Across ${state.activeAccountCount} account${if (state.activeAccountCount == 1) "" else "s"}" +
+                    (if (state.hasUnlinkedTransactions) " + unlinked entries" else "") + ", transfers excluded",
                 color = FinTextSecondary,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f)

@@ -201,7 +201,8 @@ fun MainAppContent(viewModel: FinanceViewModel = viewModel()) {
                 hideAmounts = settings.hideBalances,
                 onAddTransaction = { openEditor(TransactionType.EXPENSE) },
                 onTransactionClick = { tx -> editorRequest = EditorRequest(tx.type, tx) },
-                modifier = contentModifier
+                modifier = contentModifier,
+                accountNames = accountNames
             )
 
             NavTab.SETTINGS -> SettingsScreen(
