@@ -53,6 +53,7 @@ fun transactionDateLabel(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault(
 
 /**
  * One transaction. [showDate] = false is used in History where rows are grouped under a date header.
+ * [accountNames] (account id -> name) shows the linked account, or "From → To" for transfers.
  */
 @Composable
 fun TransactionRow(
@@ -60,7 +61,8 @@ fun TransactionRow(
     hideAmounts: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    showDate: Boolean = true
+    showDate: Boolean = true,
+    accountNames: Map<Long, String> = emptyMap()
 ) {
     val amountColor = when (transaction.type) {
         TransactionType.INCOME -> FinAccent
@@ -78,9 +80,20 @@ fun TransactionRow(
         TransactionType.EXPENSE -> "Expense"
         TransactionType.TRANSFER -> "Transfer"
     }
+    val fromName = transaction.accountId?.let { accountNames[it] }
+    val toName = transaction.toAccountId?.let { accountNames[it] }
+    val context = if (transaction.type == TransactionType.TRANSFER) {
+        "${fromName ?: "?"} → ${toName ?: "?"}"
+    } else {
+        listOfNotNull(transaction.category.label, fromName).joinToString(" · ")
+    }
+    val trailing = if (transaction.type == TransactionType.TRANSFER) "Transfer" else transaction.paymentMethod.label
+    val spokenContext = if (transaction.type == TransactionType.TRANSFER) {
+        "from ${fromName ?: "unknown account"} to ${toName ?: "unknown account"}"
+    } else context
     val spoken = "$typeWord, ${transaction.title}, " +
         (if (hideAmounts) "amount hidden" else Money.format(transaction.amountPaise)) +
-        ", ${transaction.category.label}, $secondary"
+        ", $spokenContext, $secondary"
 
     FinSurfaceCard(
         modifier = modifier.semantics(mergeDescendants = true) { contentDescription = spoken },
@@ -104,7 +117,7 @@ fun TransactionRow(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${transaction.category.label} · $secondary",
+                    text = "$context · $secondary",
                     color = FinTextSecondary,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
@@ -120,7 +133,7 @@ fun TransactionRow(
                     maxLines = 1
                 )
                 Text(
-                    text = transaction.paymentMethod.label,
+                    text = trailing,
                     color = FinTextMuted,
                     fontSize = 10.sp,
                     maxLines = 1

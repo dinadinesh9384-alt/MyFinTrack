@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -36,6 +37,7 @@ import com.myfintrack.app.components.*
 import com.myfintrack.app.domain.FinanceCalculator
 import com.myfintrack.app.domain.Money
 import com.myfintrack.app.model.AppSettings
+import com.myfintrack.app.model.BudgetProgress
 import com.myfintrack.app.model.Transaction
 import com.myfintrack.app.theme.*
 import com.myfintrack.app.viewmodel.DashboardState
@@ -51,10 +53,15 @@ fun HomeScreen(
     onToggleHideBalances: () -> Unit,
     onAddIncome: () -> Unit,
     onAddExpense: () -> Unit,
+    onTransfer: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenAccounts: () -> Unit,
+    onOpenBudgets: () -> Unit,
     onTransactionClick: (Transaction) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    budgets: List<BudgetProgress> = emptyList(),
+    accountNames: Map<Long, String> = emptyMap()
 ) {
     val hidden = settings.hideBalances
     val monthName = state.month.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)
@@ -72,7 +79,8 @@ fun HomeScreen(
             BalanceCard(
                 state = state,
                 hidden = hidden,
-                onToggleHidden = onToggleHideBalances
+                onToggleHidden = onToggleHideBalances,
+                onOpenAccounts = onOpenAccounts
             )
         }
 
@@ -99,9 +107,20 @@ fun HomeScreen(
 
         item(key = "actions") {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                QuickAction("Add expense", Icons.Filled.Remove, FinExpense, onAddExpense, Modifier.weight(1f))
-                QuickAction("Add income", Icons.Filled.Add, FinAccent, onAddIncome, Modifier.weight(1f))
+                QuickAction("Expense", Icons.Filled.Remove, FinExpense, onAddExpense, Modifier.weight(1f))
+                QuickAction("Income", Icons.Filled.Add, FinAccent, onAddIncome, Modifier.weight(1f))
+                QuickAction("Transfer", Icons.Filled.SwapHoriz, FinTransfer, onTransfer, Modifier.weight(1f))
                 QuickAction("History", Icons.Filled.History, FinTextSecondary, onOpenHistory, Modifier.weight(1f))
+            }
+        }
+
+        if (budgets.isNotEmpty()) {
+            item(key = "budgets_header") {
+                SectionHeader(title = "Budgets this month", actionLabel = "Manage", onAction = onOpenBudgets)
+            }
+            // Overall budget first (if any), then the most used categories.
+            items(budgets.take(3), key = { "home_budget_${it.budget.id}" }) { p ->
+                BudgetCard(progress = p, hidden = hidden, onClick = onOpenBudgets, compact = true)
             }
         }
 
@@ -130,7 +149,8 @@ fun HomeScreen(
                 TransactionRow(
                     transaction = tx,
                     hideAmounts = hidden,
-                    onClick = { onTransactionClick(tx) }
+                    onClick = { onTransactionClick(tx) },
+                    accountNames = accountNames
                 )
             }
         }
@@ -196,14 +216,15 @@ private fun HeaderSection(displayName: String, onProfileClick: () -> Unit) {
 private fun BalanceCard(
     state: DashboardState,
     hidden: Boolean,
-    onToggleHidden: () -> Unit
+    onToggleHidden: () -> Unit,
+    onOpenAccounts: () -> Unit
 ) {
     FinSurfaceCard(borderColor = FinAccent.copy(alpha = 0.22f), contentPadding = 20.dp) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OverlineLabel("Net balance", modifier = Modifier.weight(1f))
+            OverlineLabel("Total balance", modifier = Modifier.weight(1f))
             IconButton(onClick = onToggleHidden, modifier = Modifier.size(32.dp)) {
                 Icon(
                     imageVector = if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
@@ -220,11 +241,23 @@ private fun BalanceCard(
             maxLines = 1
         )
         Spacer(Modifier.height(2.dp))
-        Text(
-            text = "All recorded income minus expenses",
-            color = FinTextSecondary,
-            style = MaterialTheme.typography.bodySmall
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (state.activeAccountCount == 0) "All recorded income minus expenses"
+                else "Across ${state.activeAccountCount} account${if (state.activeAccountCount == 1) "" else "s"}, transfers excluded",
+                color = FinTextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onOpenAccounts, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                Text(
+                    if (state.activeAccountCount == 0) "Add accounts" else "Accounts",
+                    color = FinAccent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
 
         val hasHistory = state.lastSixMonths.any { it.totals.incomePaise > 0 || it.totals.expensePaise > 0 }
         if (state.expenseChangePercent != null || hasHistory) {

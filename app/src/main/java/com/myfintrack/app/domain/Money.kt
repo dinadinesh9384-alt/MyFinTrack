@@ -46,6 +46,24 @@ object Money {
         return ParseResult.Valid(paise)
     }
 
+    /**
+     * Like [parseToPaise] but blank or zero input is allowed and returns 0 paise.
+     * Used for opening balances, which may legitimately be zero.
+     */
+    fun parseOptionalToPaise(input: String): ParseResult {
+        val cleaned = input.trim().removePrefix("₹").replace(",", "").trim()
+        if (cleaned.isEmpty()) return ParseResult.Valid(0L)
+        val isZero = try {
+            BigDecimal(cleaned).signum() == 0
+        } catch (e: NumberFormatException) {
+            false
+        }
+        if (isZero && cleaned.none { it == 'e' || it == 'E' || it == '+' || it == '-' }) {
+            return ParseResult.Valid(0L)
+        }
+        return parseToPaise(cleaned)
+    }
+
     /** Converts paise into a plain editable string, e.g. 12050 -> "120.5", 10000 -> "100". */
     fun toEditableString(paise: Long): String =
         BigDecimal.valueOf(paise, 2).stripTrailingZeros().toPlainString()

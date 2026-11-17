@@ -159,3 +159,34 @@ fun InfoPill(
         Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }
+
+/**
+ * Horizontal progress bar. [fraction] is clamped to 0..1; the colour carries status
+ * (callers must also state the status in text so colour is never the only signal).
+ */
+@Composable
+fun FinProgressBar(
+    fraction: Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+    height: Dp = 8.dp
+) {
+    val clamped = fraction.coerceIn(0f, 1f)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(height / 2))
+            .background(FinBorder)
+    ) {
+        if (clamped > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(clamped)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(height / 2))
+                    .background(color)
+            )
+        }
+    }
+}

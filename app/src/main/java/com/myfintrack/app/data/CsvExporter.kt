@@ -16,9 +16,13 @@ object CsvExporter {
 
     private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
-    fun write(output: OutputStream, transactions: List<Transaction>, zone: ZoneId) {
+    /**
+     * @param accountNames account id -> name, used for the account columns. Transfers export
+     * the source in `account` and the destination in `to_account`.
+     */
+    fun write(output: OutputStream, transactions: List<Transaction>, accountNames: Map<Long, String>, zone: ZoneId) {
         val writer = output.bufferedWriter(Charsets.UTF_8)
-        writer.write("date,type,title,category,payment_method,amount_inr,note\n")
+        writer.write("date,type,title,category,payment_method,amount_inr,account,to_account,note\n")
         for (tx in transactions) {
             val date = DATE_FORMAT.format(Instant.ofEpochMilli(tx.occurredAt).atZone(zone))
             val row = listOf(
@@ -28,6 +32,8 @@ object CsvExporter {
                 safeText(tx.category.label),
                 safeText(tx.paymentMethod.label),
                 Money.toPlainRupees(tx.amountPaise),
+                safeText(tx.accountId?.let { accountNames[it] } ?: ""),
+                safeText(tx.toAccountId?.let { accountNames[it] } ?: ""),
                 safeText(tx.note)
             ).joinToString(",") { escape(it) }
             writer.write(row)

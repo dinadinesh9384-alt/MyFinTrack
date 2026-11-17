@@ -30,7 +30,9 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 
-enum class HistoryTypeFilter(val label: String) { ALL("All"), EXPENSE("Expenses"), INCOME("Income") }
+enum class HistoryTypeFilter(val label: String) {
+    ALL("All"), EXPENSE("Expenses"), INCOME("Income"), TRANSFER("Transfers")
+}
 
 enum class HistoryPeriod(val label: String) { ALL_TIME("All time"), THIS_MONTH("This month"), LAST_MONTH("Last month") }
 
@@ -43,14 +45,15 @@ fun HistoryScreen(
     hideAmounts: Boolean,
     onAddTransaction: () -> Unit,
     onTransactionClick: (Transaction) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    accountNames: Map<Long, String> = emptyMap()
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var typeFilter by rememberSaveable { mutableStateOf(HistoryTypeFilter.ALL) }
     var period by rememberSaveable { mutableStateOf(HistoryPeriod.ALL_TIME) }
     val zone = remember { ZoneId.systemDefault() }
 
-    val filtered = remember(transactions, query, typeFilter, period) {
+    val filtered = remember(transactions, query, typeFilter, period, accountNames) {
         val q = query.trim()
         val range = when (period) {
             HistoryPeriod.ALL_TIME -> null
@@ -62,13 +65,16 @@ fun HistoryScreen(
                 HistoryTypeFilter.ALL -> true
                 HistoryTypeFilter.EXPENSE -> tx.type == TransactionType.EXPENSE
                 HistoryTypeFilter.INCOME -> tx.type == TransactionType.INCOME
+                HistoryTypeFilter.TRANSFER -> tx.type == TransactionType.TRANSFER
             }
             val periodOk = range == null || tx.occurredAt in range
             val queryOk = q.isEmpty() ||
                 tx.title.contains(q, ignoreCase = true) ||
                 tx.category.label.contains(q, ignoreCase = true) ||
                 tx.note.contains(q, ignoreCase = true) ||
-                tx.paymentMethod.label.contains(q, ignoreCase = true)
+                tx.paymentMethod.label.contains(q, ignoreCase = true) ||
+                (tx.accountId?.let { accountNames[it] }?.contains(q, ignoreCase = true) == true) ||
+                (tx.toAccountId?.let { accountNames[it] }?.contains(q, ignoreCase = true) == true)
             typeOk && periodOk && queryOk
         }
     }
@@ -96,7 +102,7 @@ fun HistoryScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("Search title, category, note", color = FinTextMuted, fontSize = 13.sp) },
+                placeholder = { Text("Search title, category, account, note", color = FinTextMuted, fontSize = 13.sp) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = FinTextSecondary) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
@@ -133,7 +139,7 @@ fun HistoryScreen(
                         color = FinTextSecondary,
                         fontSize = 11.sp
                     )
-                    if (typeFilter != HistoryTypeFilter.EXPENSE) {
+                    if (typeFilter == HistoryTypeFilter.ALL || typeFilter == HistoryTypeFilter.INCOME) {
                         Text(
                             "In " + Money.display(totals.incomePaise, hideAmounts, withDecimals = false),
                             color = FinAccent,
@@ -141,7 +147,7 @@ fun HistoryScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
-                    if (typeFilter != HistoryTypeFilter.INCOME) {
+                    if (typeFilter == HistoryTypeFilter.ALL || typeFilter == HistoryTypeFilter.EXPENSE) {
                         Text(
                             "Out " + Money.display(totals.expensePaise, hideAmounts, withDecimals = false),
                             color = FinExpense,
@@ -197,7 +203,8 @@ fun HistoryScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.semantics { heading() }
                             )
-                            if (!hideAmounts) {
+                            // Day net = income − expenses; transfers never change it.
+                            if (!hideAmounts && group.items.any { it.type != TransactionType.TRANSFER }) {
                                 Text(
                                     Money.formatSigned(group.netPaise, group.netPaise >= 0L, withDecimals = false),
                                     color = if (group.netPaise >= 0L) FinAccent else FinExpense,
@@ -212,7 +219,8 @@ fun HistoryScreen(
                             transaction = tx,
                             hideAmounts = hideAmounts,
                             onClick = { onTransactionClick(tx) },
-                            showDate = false
+                            showDate = false,
+                            accountNames = accountNames
                         )
                     }
                 }

@@ -92,7 +92,7 @@ fun SettingsScreen(
             InfoTile(
                 icon = Icons.Filled.Lock,
                 title = "Stored on this device",
-                subtitle = "Your transactions are saved locally and never sent to any server."
+                subtitle = "Your transactions, accounts, budgets and goals are saved locally and never sent to any server."
             )
         }
 
@@ -111,7 +111,7 @@ fun SettingsScreen(
             SettingActionTile(
                 icon = Icons.Filled.DeleteForever,
                 title = "Delete all data",
-                subtitle = "Permanently erase transactions and settings from this device",
+                subtitle = "Permanently erase transactions, accounts, budgets, goals and settings",
                 tint = FinExpense,
                 onClick = { confirmDeleteAll = true }
             )
@@ -161,7 +161,7 @@ fun SettingsScreen(
             title = { Text("Delete all data?") },
             text = {
                 Text(
-                    "This permanently removes all $transactionCount transactions and your settings from this device. " +
+                    "This permanently removes all $transactionCount transactions, your accounts, budgets, goals and settings from this device. " +
                         "It cannot be undone. Export a CSV first if you want a copy."
                 )
             },

@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.myfintrack.app.domain.Money
+import com.myfintrack.app.model.Account
 import com.myfintrack.app.model.Category
 import com.myfintrack.app.model.PaymentMethod
 import com.myfintrack.app.model.Transaction
@@ -50,17 +51,21 @@ data class EditorRequest(
 )
 
 /**
- * Add / edit transaction bottom sheet.
- * Amounts are parsed with BigDecimal into paise. Income and expense only; transfers between
- * accounts are added in Step 3 together with the accounts feature.
+ * Add / edit transaction bottom sheet for income, expenses and transfers.
+ * Amounts are parsed with BigDecimal into paise.
+ *
+ * Transfers move money between two of the user's own accounts. They need two different
+ * accounts and are never counted as income or expense.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionEditorSheet(
     request: EditorRequest,
+    accounts: List<Account>,
     onDismiss: () -> Unit,
     onSave: (Transaction) -> Unit,
-    onDelete: (Transaction) -> Unit
+    onDelete: (Transaction) -> Unit,
+    onManageAccounts: () -> Unit
 ) {
     val existing = request.existing
     val zone = remember { ZoneId.systemDefault() }
@@ -72,6 +77,9 @@ fun TransactionEditorSheet(
     var category by remember { mutableStateOf(existing?.category ?: Category.defaultFor(type)) }
     var paymentMethod by remember { mutableStateOf(existing?.paymentMethod ?: PaymentMethod.UPI) }
     var note by remember { mutableStateOf(existing?.note ?: "") }
+    var accountId by remember { mutableStateOf(existing?.accountId) }
+    var toAccountId by remember { mutableStateOf(existing?.toAccountId) }
+    var accountError by remember { mutableStateOf<String?>(null) }
     var date by remember {
         mutableStateOf(
             existing?.let { Instant.ofEpochMilli(it.occurredAt).atZone(zone).toLocalDate() } ?: LocalDate.now(zone)
@@ -81,7 +89,16 @@ fun TransactionEditorSheet(
     var showDatePicker by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    val accent = if (type == TransactionType.INCOME) FinAccent else FinExpense
+    val accent = when (type) {
+        TransactionType.INCOME -> FinAccent
+        TransactionType.EXPENSE -> FinExpense
+        TransactionType.TRANSFER -> FinTransfer
+    }
+    // Archived accounts are hidden unless this transaction already uses them.
+    val selectableAccounts = remember(accounts, existing) {
+        accounts.filter { !it.archived || it.id == existing?.accountId || it.id == existing?.toAccountId }
+    }
+    val canTransfer = selectableAccounts.size >= 2
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -113,17 +130,21 @@ fun TransactionEditorSheet(
                 }
             }
 
-            if (type != TransactionType.TRANSFER) {
-                TypeToggle(
-                    selected = type,
-                    onSelect = { newType ->
-                        if (newType != type) {
-                            type = newType
-                            category = Category.defaultFor(newType)
+            TypeToggle(
+                selected = type,
+                onSelect = { newType ->
+                    if (newType != type) {
+                        type = newType
+                        category = Category.defaultFor(newType)
+                        accountError = null
+                        if (newType == TransactionType.TRANSFER) {
+                            paymentMethod = PaymentMethod.BANK_TRANSFER
+                        } else {
+                            toAccountId = null
                         }
                     }
-                )
-            }
+                }
+            )
 
             // Amount
             Column(
@@ -166,20 +187,67 @@ fun TransactionEditorSheet(
                 }
             }
 
-            // Category grid
-            OverlineLabel("Category")
-            CategoryGrid(
-                categories = Category.forType(type),
-                selected = category,
-                onSelect = { category = it }
-            )
+            if (type == TransactionType.TRANSFER) {
+                if (!canTransfer) {
+                    TransferNeedsAccounts(onManageAccounts = onManageAccounts)
+                } else {
+                    OverlineLabel("From account")
+                    AccountChips(
+                        accounts = selectableAccounts,
+                        selectedId = accountId,
+                        accent = accent,
+                        onSelect = {
+                            accountId = it
+                            if (it == toAccountId) toAccountId = null
+                            accountError = null
+                        }
+                    )
+                    OverlineLabel("To account")
+                    AccountChips(
+                        accounts = selectableAccounts.filter { it.id != accountId },
+                        selectedId = toAccountId,
+                        accent = accent,
+                        onSelect = {
+                            toAccountId = it
+                            accountError = null
+                        }
+                    )
+                    Text(
+                        "Transfers move your own money between accounts. They are not counted as income or expense.",
+                        color = FinTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            } else {
+                // Category grid
+                OverlineLabel("Category")
+                CategoryGrid(
+                    categories = Category.forType(type),
+                    selected = category,
+                    onSelect = { category = it }
+                )
+
+                if (selectableAccounts.isNotEmpty()) {
+                    OverlineLabel(if (type == TransactionType.INCOME) "Received in" else "Paid from")
+                    AccountChips(
+                        accounts = selectableAccounts,
+                        selectedId = accountId,
+                        accent = accent,
+                        noneLabel = "No account",
+                        onSelect = { accountId = it }
+                    )
+                }
+            }
+            accountError?.let {
+                Text(it, color = FinExpense, style = MaterialTheme.typography.bodySmall)
+            }
 
             // Title
             OutlinedTextField(
                 value = title,
                 onValueChange = { if (it.length <= 60) title = it },
                 label = { Text("Title (optional)") },
-                placeholder = { Text(category.label, color = FinTextMuted) },
+                placeholder = { Text(defaultTitle(type, category, toAccountId, accounts), color = FinTextMuted) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
                 colors = finTextFieldColors(accent),
@@ -187,8 +255,9 @@ fun TransactionEditorSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Payment method
-            OverlineLabel("Paid via")
+            // Payment method (not relevant for transfers between own accounts)
+            if (type != TransactionType.TRANSFER) {
+            OverlineLabel(if (type == TransactionType.INCOME) "Received via" else "Paid via")
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -214,6 +283,7 @@ fun TransactionEditorSheet(
                         )
                     )
                 }
+            }
             }
 
             // Date
@@ -250,10 +320,22 @@ fun TransactionEditorSheet(
             )
 
             Button(
+                enabled = type != TransactionType.TRANSFER || canTransfer,
                 onClick = {
-                    when (val parsed = Money.parseToPaise(amountText)) {
-                        is Money.ParseResult.Invalid -> amountError = parsed.reason
-                        is Money.ParseResult.Valid -> {
+                    val transferProblem = if (type == TransactionType.TRANSFER) {
+                        when {
+                            accountId == null -> "Choose the account the money leaves"
+                            toAccountId == null -> "Choose the account the money goes to"
+                            accountId == toAccountId -> "From and to accounts must be different"
+                            else -> null
+                        }
+                    } else null
+                    val parsed = Money.parseToPaise(amountText)
+                    if (parsed is Money.ParseResult.Invalid) amountError = parsed.reason
+                    accountError = transferProblem
+                    when {
+                        parsed is Money.ParseResult.Invalid || transferProblem != null -> Unit
+                        parsed is Money.ParseResult.Valid -> {
                             val time = existing?.let {
                                 Instant.ofEpochMilli(it.occurredAt).atZone(zone).toLocalTime()
                             } ?: LocalTime.now(zone)
@@ -270,11 +352,13 @@ fun TransactionEditorSheet(
                                 base.copy(
                                     type = type,
                                     amountPaise = parsed.paise,
-                                    title = title.trim().ifEmpty { category.label },
+                                    title = title.trim().ifEmpty { defaultTitle(type, category, toAccountId, accounts) },
                                     category = category,
                                     paymentMethod = paymentMethod,
                                     note = note.trim(),
-                                    occurredAt = occurredAt
+                                    occurredAt = occurredAt,
+                                    accountId = accountId,
+                                    toAccountId = if (type == TransactionType.TRANSFER) toAccountId else null
                                 )
                             )
                         }
@@ -282,7 +366,11 @@ fun TransactionEditorSheet(
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = accent,
-                    contentColor = if (type == TransactionType.INCOME) Color(0xFF052E16) else Color.White
+                    contentColor = when (type) {
+                        TransactionType.INCOME -> Color(0xFF052E16)
+                        TransactionType.TRANSFER -> Color(0xFF0B1B33)
+                        TransactionType.EXPENSE -> Color.White
+                    }
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
@@ -293,6 +381,7 @@ fun TransactionEditorSheet(
                     text = when {
                         existing != null -> "Save changes"
                         type == TransactionType.INCOME -> "Add income"
+                        type == TransactionType.TRANSFER -> "Add transfer"
                         else -> "Add expense"
                     },
                     fontWeight = FontWeight.Bold,
@@ -372,9 +461,17 @@ private fun TypeToggle(selected: TransactionType, onSelect: (TransactionType) ->
             .border(1.dp, FinBorder, RoundedCornerShape(14.dp))
             .padding(4.dp)
     ) {
-        listOf(TransactionType.EXPENSE to "Expense", TransactionType.INCOME to "Income").forEach { (option, label) ->
+        listOf(
+            TransactionType.EXPENSE to "Expense",
+            TransactionType.INCOME to "Income",
+            TransactionType.TRANSFER to "Transfer"
+        ).forEach { (option, label) ->
             val isSelected = option == selected
-            val color = if (option == TransactionType.INCOME) FinAccent else FinExpense
+            val color = when (option) {
+                TransactionType.INCOME -> FinAccent
+                TransactionType.EXPENSE -> FinExpense
+                TransactionType.TRANSFER -> FinTransfer
+            }
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -392,6 +489,85 @@ private fun TypeToggle(selected: TransactionType, onSelect: (TransactionType) ->
                     fontSize = 13.sp
                 )
             }
+        }
+    }
+}
+
+private fun defaultTitle(
+    type: TransactionType,
+    category: Category,
+    toAccountId: Long?,
+    accounts: List<Account>
+): String = if (type == TransactionType.TRANSFER) {
+    accounts.firstOrNull { it.id == toAccountId }?.let { "Transfer to ${it.name}" } ?: "Transfer"
+} else {
+    category.label
+}
+
+/** Horizontal, single-select list of accounts. [noneLabel] adds a "no account" option. */
+@Composable
+private fun AccountChips(
+    accounts: List<Account>,
+    selectedId: Long?,
+    accent: Color,
+    onSelect: (Long?) -> Unit,
+    noneLabel: String? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (noneLabel != null) {
+            EditorChip(noneLabel, selectedId == null, accent) { onSelect(null) }
+        }
+        accounts.forEach { account ->
+            val label = if (account.archived) "${account.name} (archived)" else account.name
+            EditorChip(label, selectedId == account.id, accent) { onSelect(account.id) }
+        }
+    }
+}
+
+@Composable
+private fun EditorChip(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = FinCard,
+            labelColor = FinTextSecondary,
+            selectedContainerColor = accent.copy(alpha = 0.18f),
+            selectedLabelColor = accent
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = FinBorder,
+            selectedBorderColor = accent.copy(alpha = 0.5f)
+        )
+    )
+}
+
+@Composable
+private fun TransferNeedsAccounts(onManageAccounts: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(FinTransfer.copy(alpha = 0.10f), RoundedCornerShape(14.dp))
+            .border(1.dp, FinTransfer.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Add two accounts first", color = FinTextPrimary, fontWeight = FontWeight.SemiBold)
+        Text(
+            "A transfer moves money from one of your accounts to another, for example from your bank to cash.",
+            color = FinTextSecondary,
+            style = MaterialTheme.typography.bodySmall
+        )
+        TextButton(onClick = onManageAccounts, contentPadding = PaddingValues(0.dp)) {
+            Text("Manage accounts", color = FinTransfer, fontWeight = FontWeight.SemiBold)
         }
     }
 }

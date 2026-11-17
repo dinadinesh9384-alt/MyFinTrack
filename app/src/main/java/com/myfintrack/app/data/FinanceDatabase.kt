@@ -23,8 +23,7 @@ internal class FinanceDatabase(context: Context) :
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        // Accounts table is created now so the transactions table can reference it.
-        // Account management UI is delivered in Step 3.
+        // Version 1 schema
         db.execSQL(
             """
             CREATE TABLE $T_ACCOUNTS (
@@ -57,19 +56,73 @@ internal class FinanceDatabase(context: Context) :
         )
         db.execSQL("CREATE INDEX idx_tx_occurred_at ON $T_TRANSACTIONS($C_OCCURRED_AT)")
         db.execSQL("CREATE INDEX idx_tx_account ON $T_TRANSACTIONS($C_ACCOUNT_ID)")
+
+        // Version 2 additions
+        createVersion2Tables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Version 1 is the first schema. Add explicit step-by-step migrations here, e.g.
-        // if (oldVersion < 2) { db.execSQL("CREATE TABLE budgets (...)") }
+        // Explicit, additive migrations only. Existing user data is never dropped.
+        if (oldVersion < 2) {
+            createVersion2Tables(db)
+        }
+    }
+
+    /** v2: budgets, savings goals and goal contributions, plus a to-account index for transfers. */
+    private fun createVersion2Tables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS $T_BUDGETS (
+                $C_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                $C_BUDGET_SCOPE TEXT NOT NULL UNIQUE,
+                $C_LIMIT INTEGER NOT NULL CHECK ($C_LIMIT > 0),
+                $C_CREATED_AT INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS $T_GOALS (
+                $C_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                $C_NAME TEXT NOT NULL,
+                $C_TARGET INTEGER NOT NULL CHECK ($C_TARGET > 0),
+                $C_TARGET_DAY INTEGER,
+                $C_CREATED_AT INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS $T_GOAL_CONTRIBUTIONS (
+                $C_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                $C_GOAL_ID INTEGER NOT NULL REFERENCES $T_GOALS($C_ID) ON DELETE CASCADE,
+                $C_AMOUNT INTEGER NOT NULL CHECK ($C_AMOUNT <> 0),
+                $C_OCCURRED_AT INTEGER NOT NULL,
+                $C_NOTE TEXT NOT NULL DEFAULT ''
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_goal_contrib_goal ON $T_GOAL_CONTRIBUTIONS($C_GOAL_ID)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tx_to_account ON $T_TRANSACTIONS($C_TO_ACCOUNT_ID)")
     }
 
     companion object {
         const val DB_NAME = "myfintrack.db"
-        const val DB_VERSION = 1
+        const val DB_VERSION = 2
 
         const val T_ACCOUNTS = "accounts"
         const val T_TRANSACTIONS = "transactions"
+        const val T_BUDGETS = "budgets"
+        const val T_GOALS = "goals"
+        const val T_GOAL_CONTRIBUTIONS = "goal_contributions"
+
+        /** Budget scope: an expense [com.myfintrack.app.model.Category] name, or [SCOPE_OVERALL]. */
+        const val C_BUDGET_SCOPE = "scope"
+        const val SCOPE_OVERALL = "OVERALL"
+        const val C_LIMIT = "limit_paise"
+        const val C_TARGET = "target_paise"
+        const val C_TARGET_DAY = "target_epoch_day"
+        const val C_GOAL_ID = "goal_id"
 
         const val C_ID = "id"
         const val C_NAME = "name"

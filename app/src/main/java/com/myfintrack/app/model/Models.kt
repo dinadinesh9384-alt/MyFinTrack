@@ -24,7 +24,7 @@ enum class TransactionType {
 }
 
 enum class NavTab {
-    HOME, HISTORY, ANALYSIS, SETTINGS
+    HOME, HISTORY, MONEY, ANALYSIS, SETTINGS
 }
 
 enum class PaymentMethod(val label: String) {
@@ -98,9 +98,12 @@ data class Transaction(
     val note: String = "",
     /** Epoch milliseconds (UTC instant) of when the transaction happened. */
     val occurredAt: Long,
-    /** Reserved for the accounts feature (Step 3). Null until accounts exist. */
+    /**
+     * Income/expense: the account the money went into / came out of (optional).
+     * Transfer: the source account (required).
+     */
     val accountId: Long? = null,
-    /** Destination account for transfers (Step 3). */
+    /** Transfer only: the destination account (required for transfers, null otherwise). */
     val toAccountId: Long? = null,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
@@ -117,4 +120,107 @@ data class CategorySpending(
 data class AppSettings(
     val hideBalances: Boolean = false,
     val displayName: String = ""
+)
+
+// ---------------------------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------------------------
+
+enum class AccountType(val label: String) {
+    BANK("Bank account"),
+    SAVINGS("Savings"),
+    CASH("Cash"),
+    WALLET("Wallet / UPI"),
+    CREDIT_CARD("Credit card"),
+    OTHER("Other");
+
+    /** Liabilities (money owed) are entered as a positive "amount owed" and stored negative. */
+    val isLiability: Boolean get() = this == CREDIT_CARD
+
+    companion object {
+        fun fromKey(key: String?): AccountType = entries.firstOrNull { it.name == key } ?: OTHER
+    }
+}
+
+data class Account(
+    val id: Long = 0L,
+    val name: String,
+    val type: AccountType,
+    /**
+     * Balance when tracking started, in paise. Signed: negative means money owed
+     * (e.g. an outstanding credit card bill).
+     */
+    val openingBalancePaise: Long = 0L,
+    val archived: Boolean = false,
+    val createdAt: Long = 0L
+)
+
+/** Current balance = opening balance + linked income − linked expenses ± transfers. */
+data class AccountBalance(val account: Account, val balancePaise: Long)
+
+// ---------------------------------------------------------------------------------------------
+// Budgets
+// ---------------------------------------------------------------------------------------------
+
+/** A monthly spending limit. [category] == null is the overall budget for all expenses. */
+data class Budget(
+    val id: Long = 0L,
+    val category: Category?,
+    val limitPaise: Long,
+    val createdAt: Long = 0L
+)
+
+enum class BudgetStatus { ON_TRACK, NEAR_LIMIT, OVER_LIMIT }
+
+data class BudgetProgress(
+    val budget: Budget,
+    val spentPaise: Long,
+    /** Remaining for the month; negative when over the limit. */
+    val remainingPaise: Long,
+    /** Spent as whole percent of the limit (can exceed 100). */
+    val percentUsed: Int,
+    val status: BudgetStatus,
+    /** Remaining split evenly over the days left in the month (incl. today); 0 when over. */
+    val perDayLeftPaise: Long
+)
+
+// ---------------------------------------------------------------------------------------------
+// Goals
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A savings goal. Money "added" to a goal is an allocation: it stays in the user's accounts
+ * and is never counted as an expense or a transfer.
+ */
+data class Goal(
+    val id: Long = 0L,
+    val name: String,
+    val targetPaise: Long,
+    /** Optional target date as epoch day (LocalDate.toEpochDay()). */
+    val targetEpochDay: Long? = null,
+    val createdAt: Long = 0L
+)
+
+/** Positive = money set aside for the goal, negative = taken back out. */
+data class GoalContribution(
+    val id: Long = 0L,
+    val goalId: Long,
+    val amountPaise: Long,
+    val occurredAt: Long,
+    val note: String = ""
+)
+
+enum class GoalStatus { IN_PROGRESS, COMPLETED, OVERDUE }
+
+data class GoalProgress(
+    val goal: Goal,
+    val savedPaise: Long,
+    val remainingPaise: Long,
+    /** 0..100 (capped). */
+    val percent: Int,
+    val status: GoalStatus,
+    /** Amount to set aside per month to reach the target date; null without a date or when done. */
+    val monthlyNeededPaise: Long?,
+    /** Whole months left until the target date (min 1), null without a date. */
+    val monthsLeft: Int?
 )
