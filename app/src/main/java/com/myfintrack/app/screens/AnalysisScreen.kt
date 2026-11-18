@@ -228,6 +228,7 @@ private fun DailySpendingCard(daily: LongArray, month: YearMonth, hideAmounts: B
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(14.dp))
+        val emptyBarColor = FinCardHover
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
@@ -242,7 +243,7 @@ private fun DailySpendingCard(daily: LongArray, month: YearMonth, hideAmounts: B
                 val barHeight = if (value > 0L) (size.height * ratio).coerceAtLeast(3f) else 2f
                 drawRoundRect(
                     color = when {
-                        value == 0L -> FinCardHover
+                        value == 0L -> emptyBarColor
                         index == peakIndex -> FinExpense
                         else -> FinExpense.copy(alpha = 0.55f)
                     },

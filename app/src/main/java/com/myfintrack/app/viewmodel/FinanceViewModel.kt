@@ -273,6 +273,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     fun setDisplayName(name: String) = settingsRepository.setDisplayName(name)
 
+    fun setThemeMode(mode: com.myfintrack.app.model.ThemeMode) = settingsRepository.setThemeMode(mode)
+
     /** Writes all transactions to a document the user picked with the system file picker. */
     fun exportCsv(uri: Uri) {
         val snapshot = repository.transactions.value

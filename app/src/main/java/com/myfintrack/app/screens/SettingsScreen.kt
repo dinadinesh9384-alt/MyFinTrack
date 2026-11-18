@@ -9,11 +9,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.myfintrack.app.components.*
 import com.myfintrack.app.data.SettingsRepository
 import com.myfintrack.app.model.AppSettings
+import com.myfintrack.app.model.ThemeMode
 import com.myfintrack.app.theme.*
 import java.time.LocalDate
 
@@ -42,11 +44,13 @@ fun SettingsScreen(
     transactionCount: Int,
     onHideBalancesChange: (Boolean) -> Unit,
     onDisplayNameChange: (String) -> Unit,
+    onThemeModeChange: (ThemeMode) -> Unit,
     onExportCsv: (android.net.Uri) -> Unit,
     onDeleteAllData: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var editName by remember { mutableStateOf(false) }
+    var editTheme by remember { mutableStateOf(false) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
 
     // Storage Access Framework: the user picks where to save. No storage permission needed.
@@ -68,13 +72,21 @@ fun SettingsScreen(
             )
         }
 
-        item { GroupLabel("Profile") }
+        item { GroupLabel("Profile & Appearance") }
         item {
             SettingActionTile(
                 icon = Icons.Filled.Person,
                 title = "Display name",
                 subtitle = settings.displayName.ifBlank { "Not set, used for your greeting" },
                 onClick = { editName = true }
+            )
+        }
+        item {
+            SettingActionTile(
+                icon = Icons.Filled.Palette,
+                title = "App theme",
+                subtitle = settings.themeMode.label,
+                onClick = { editTheme = true }
             )
         }
 
@@ -131,7 +143,7 @@ fun SettingsScreen(
         var draft by remember { mutableStateOf(settings.displayName) }
         AlertDialog(
             onDismissRequest = { editName = false },
-            title = { Text("Display name") },
+            title = { Text("Display name", color = FinTextPrimary) },
             text = {
                 OutlinedTextField(
                     value = draft,
@@ -155,14 +167,55 @@ fun SettingsScreen(
         )
     }
 
+    if (editTheme) {
+        AlertDialog(
+            onDismissRequest = { editTheme = false },
+            title = { Text("App theme", color = FinTextPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeMode.entries.forEach { mode ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    onThemeModeChange(mode)
+                                    editTheme = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            RadioButton(
+                                selected = settings.themeMode == mode,
+                                onClick = {
+                                    onThemeModeChange(mode)
+                                    editTheme = false
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = FinAccent)
+                            )
+                            Text(mode.label, color = FinTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { editTheme = false }) { Text("Cancel", color = FinTextSecondary) }
+            },
+            containerColor = FinCard
+        )
+    }
+
     if (confirmDeleteAll) {
         AlertDialog(
             onDismissRequest = { confirmDeleteAll = false },
-            title = { Text("Delete all data?") },
+            title = { Text("Delete all data?", color = FinTextPrimary) },
             text = {
                 Text(
                     "This permanently removes all $transactionCount transactions, your accounts, budgets, goals and settings from this device. " +
-                        "It cannot be undone. Export a CSV first if you want a copy."
+                        "It cannot be undone. Export a CSV first if you want a copy.",
+                    color = FinTextSecondary
                 )
             },
             confirmButton = {

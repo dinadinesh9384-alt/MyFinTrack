@@ -41,8 +41,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MyFinTrackTheme {
-                MainAppContent()
+            val viewModel: FinanceViewModel = viewModel()
+            val settings by viewModel.settings.collectAsState()
+            MyFinTrackTheme(themeMode = settings.themeMode) {
+                MainAppContent(viewModel = viewModel)
             }
         }
     }
@@ -210,6 +212,7 @@ fun MainAppContent(viewModel: FinanceViewModel = viewModel()) {
                 transactionCount = transactions.size,
                 onHideBalancesChange = viewModel::setHideBalances,
                 onDisplayNameChange = viewModel::setDisplayName,
+                onThemeModeChange = viewModel::setThemeMode,
                 onExportCsv = viewModel::exportCsv,
                 onDeleteAllData = viewModel::deleteAllData,
                 modifier = contentModifier

@@ -117,9 +117,21 @@ data class CategorySpending(
     val fraction: Float
 )
 
+enum class ThemeMode(val label: String) {
+    SYSTEM("System default"),
+    DARK("Dark mode"),
+    LIGHT("Light mode");
+
+    companion object {
+        fun fromKey(key: String?): ThemeMode =
+            entries.firstOrNull { it.name == key } ?: SYSTEM
+    }
+}
+
 data class AppSettings(
     val hideBalances: Boolean = false,
-    val displayName: String = ""
+    val displayName: String = "",
+    val themeMode: ThemeMode = ThemeMode.SYSTEM
 )
 
 // ---------------------------------------------------------------------------------------------

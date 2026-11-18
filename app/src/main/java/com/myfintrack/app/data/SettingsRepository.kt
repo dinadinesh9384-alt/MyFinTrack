@@ -2,6 +2,7 @@ package com.myfintrack.app.data
 
 import android.content.Context
 import com.myfintrack.app.model.AppSettings
+import com.myfintrack.app.model.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,11 @@ class SettingsRepository private constructor(context: Context) {
         _settings.value = read()
     }
 
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
+        _settings.value = read()
+    }
+
     fun clear() {
         prefs.edit().clear().apply()
         _settings.value = read()
@@ -32,7 +38,8 @@ class SettingsRepository private constructor(context: Context) {
 
     private fun read() = AppSettings(
         hideBalances = prefs.getBoolean(KEY_HIDE_BALANCES, false),
-        displayName = prefs.getString(KEY_DISPLAY_NAME, "") ?: ""
+        displayName = prefs.getString(KEY_DISPLAY_NAME, "") ?: "",
+        themeMode = ThemeMode.fromKey(prefs.getString(KEY_THEME_MODE, null))
     )
 
     companion object {
@@ -40,6 +47,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val PREFS_NAME = "myfintrack_settings"
         private const val KEY_HIDE_BALANCES = "hide_balances"
         private const val KEY_DISPLAY_NAME = "display_name"
+        private const val KEY_THEME_MODE = "theme_mode"
 
         @Volatile
         private var instance: SettingsRepository? = null

@@ -110,6 +110,7 @@ private fun DonutWithLegend(
                     .semantics { contentDescription = chartDescription },
                 contentAlignment = Alignment.Center
             ) {
+                val trackColor = FinCardHover
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -137,7 +138,7 @@ private fun DonutWithLegend(
                     val topLeft = Offset(size.width / 2f - radius, size.height / 2f - radius)
                     val arcSize = Size(radius * 2, radius * 2)
                     drawArc(
-                        color = FinCardHover,
+                        color = trackColor,
                         startAngle = 0f,
                         sweepAngle = 360f,
                         useCenter = false,
